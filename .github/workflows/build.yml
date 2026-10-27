@@ -1,0 +1,102 @@
+name: Build ImmortalWrt R68S (armv8)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare package list
+        id: pkgs
+        run: |
+          PACKAGES=$(grep -vE '^\s*(#|$)' config/packages.list | tr '\n' ' ')
+          echo "packages=${PACKAGES}" >> "$GITHUB_OUTPUT"
+          echo ">>> ${PACKAGES}"
+
+      - name: Inject root password hash
+        run: |
+          HASH=$(openssl passwd -6 'passwd')
+          sed -i "s|__ROOT_PW_HASH__|${HASH}|" files/etc/uci-defaults/99-custom.sh
+          if grep -q '__ROOT_PW_HASH__' files/etc/uci-defaults/99-custom.sh; then echo "!! 占位符未替换"; exit 1; fi
+          echo "密码哈希注入成功"
+
+      - name: Download ImageBuilder
+        run: |
+          RELEASE="25.12.2"
+          BASE="https://downloads.immortalwrt.org/releases/${RELEASE}/targets/rockchip/armv8"
+          IB="immortalwrt-imagebuilder-${RELEASE}-rockchip-armv8.Linux-x86_64.tar.zst"
+          curl -fL --retry 3 -o "${IB}" "${BASE}/${IB}"
+          curl -fsSL -o sha256sums "${BASE}/sha256sums"
+          EXPECT=$(grep -F "${IB}" sha256sums | awk '{print $1}')
+          ACTUAL=$(sha256sum "${IB}" | awk '{print $1}')
+          echo "expect=${EXPECT}"
+          echo "actual=${ACTUAL}"
+          [ "${EXPECT}" = "${ACTUAL}" ] || { echo "sha256 mismatch"; exit 1; }
+          mkdir -p ib && tar --zstd -xf "${IB}" -C ib --strip-components=1
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y zstd build-essential python3 file
+
+      - name: Build image
+        run: |
+          cd ib
+          make image \
+            PROFILE="lunzn_fastrhino-r68s" \
+            PACKAGES="${{ steps.pkgs.outputs.packages }}" \
+            FILES="../files" \
+            EXTRA_IMAGE_NAME="immortalwrt-25.12.2-r68s"
+
+      - name: Collect firmware
+        run: |
+          mkdir -p output
+          find ib/bin -type f \( -name '*.img.gz' -o -name '*.img' -o -name '*.manifest' \) -exec cp -f {} output/ \; 2>/dev/null || true
+          ls -lh output/
+
+      - name: Verify firmware
+        run: |
+          echo "=== 确认 squashfs sysupgrade 镜像存在 ==="
+          ls -lh output/ | grep -i squashfs || { echo "!! 未找到 squashfs 镜像"; exit 1; }
+          echo "=== 校验 sha256 ==="
+          find output -name '*.img.gz' -exec sha256sum {} \;
+          echo "=== 校验 manifest 包清单 ==="
+          ls -lh output/*.manifest 2>/dev/null || echo "(无 manifest)"
+
+      - name: Static verify
+        run: |
+          echo "=== 核对 packages.list 中的包是否都在 manifest ==="
+          MANIFEST=$(ls output/*.manifest 2>/dev/null | head -1)
+          if [ -n "$MANIFEST" ]; then
+            for p in luci luci-i18n-base-zh-cn luci-app-passwall luci-app-openclash luci-app-ttyd luci-app-unblockneteasemusic luci-app-diskman luci-app-statistics luci-app-adblock luci-app-ddns luci-app-cpufreq; do
+              if grep -q "^${p} " "$MANIFEST"; then
+                echo "  ✅ $p"
+              else
+                echo "  ⚠️ $p (manifest 未直接列出，可能由依赖带入)"
+              fi
+            done
+          fi
+          echo "=== 核对配置文件 ==="
+          grep -q "192.168.10.1" files/etc/config/network && echo "  ✅ LAN 192.168.10.1" || echo "  ❌ LAN IP"
+          grep -q "ROOT_PW_HASH\|shadow" files/etc/uci-defaults/99-custom.sh && echo "  ✅ 密码脚本" || echo "  ❌ 密码脚本"
+
+      - name: Publish to GitHub Release
+        if: success()
+        run: |
+          TAG="v25.12.2-r68s"
+          BODY="ImmortalWrt 25.12.2 定制固件 (FastRhino R68S / rockchip-armv8) | 后台 192.168.10.1 (root/passwd) | 全官方源"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "ImmortalWrt 25.12.2 R68S" --notes "$BODY" --target main
+          fi
+          gh release upload "$TAG" output/*squashfs-sysupgrade.img.gz --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

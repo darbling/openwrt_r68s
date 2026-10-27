@@ -1,0 +1,42 @@
+# 额外安装的软件包清单（ImageBuilder PACKAGES 变量直接消费）
+# 目标：FastRhino R68S（rockchip/armv8，包架构 aarch64_generic）
+# 基于 ImmortalWrt 25.12.2 官方源逐一核实；仅列「官方源存在」的包
+
+# ===== 基础 / LuCI 及中文 =====
+luci
+luci-ssl
+luci-i18n-base-zh-cn
+luci-compat
+
+# ===== 用户指定插件 =====
+luci-app-passwall
+luci-i18n-passwall-zh-cn
+luci-app-openclash
+luci-app-ttyd
+luci-i18n-ttyd-zh-cn
+luci-app-unblockneteasemusic
+luci-app-diskman
+luci-i18n-diskman-zh-cn
+luci-app-statistics
+luci-i18n-statistics-zh-cn
+luci-app-adblock
+luci-i18n-adblock-zh-cn
+luci-app-ddns
+luci-i18n-ddns-zh-cn
+ddns-scripts-dnspod-v3
+ddns-scripts-dnspod-com
+luci-app-cpufreq
+
+# ===== 常用工具 =====
+ethtool
+curl
+ca-bundle
+htop
+bash
+nano
+
+# ===== 网络 / 内核模块（官方内核源已确认存在）=====
+kmod-gpio-button-hotplug
+kmod-nf-nathelper
+kmod-nft-offload
+kmod-r8125

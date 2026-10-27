@@ -1,0 +1,24 @@
+config interface 'loopback'
+	option device 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option netmask '255.0.0.0'
+
+config globals 'globals'
+	option ula_prefix 'fdb7:xxxx:xxxx::/48'
+
+# LAN：桥接 br-lan，后台 192.168.10.1
+# R68S 有多个网口，默认全部纳入 br-lan（lan 口），WAN 需进后台后自行设置
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	list ports 'eth0'
+	list ports 'eth1'
+	list ports 'eth2'
+
+config interface 'lan'
+	option device 'br-lan'
+	option proto 'static'
+	option ipaddr '192.168.10.1'
+	option netmask '255.255.255.0'
+	option ip6assign '60'
